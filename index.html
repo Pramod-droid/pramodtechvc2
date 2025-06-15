@@ -1,0 +1,143 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pramod Tech Connect</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 0; background: #f0f0f5; color: #333; }
+    header { background: #4a148c; color: white; padding: 1em; text-align: center; }
+    .container { display: flex; flex-direction: column; align-items: center; padding: 20px; }
+    video { width: 45%; max-width: 400px; border-radius: 10px; margin: 10px; }
+    #controls button { margin: 5px; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; }
+    #chat, #log { width: 90%; max-width: 600px; margin-top: 20px; }
+    #chat input { width: 80%; padding: 8px; }
+    #chat button { padding: 8px 12px; }
+    #log { background: #fff; border: 1px solid #ccc; border-radius: 5px; padding: 10px; max-height: 200px; overflow-y: auto; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Pramod Tech Connect</h1>
+    <div id="clock"></div>
+  </header>
+  <div class="container">
+    <div>
+      <video id="localVideo" autoplay muted></video>
+      <video id="remoteVideo" autoplay></video>
+    </div>
+    <div id="controls">
+      <button onclick="toggleMic()">🎤 Mic</button>
+      <button onclick="toggleVideo()">📷 Camera</button>
+      <button onclick="shareScreen()">🖥️ Share Screen</button>
+    </div>
+    <div id="chat">
+      <input type="text" id="chatInput" placeholder="Type a message..."/>
+      <button onclick="sendMessage()">Send</button>
+      <input type="file" id="fileInput" />
+    </div>
+    <div id="log"></div>
+  </div>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script>
+    const peer = new Peer();
+    const log = document.getElementById("log");
+    const localVideo = document.getElementById("localVideo");
+    const remoteVideo = document.getElementById("remoteVideo");
+    const chatInput = document.getElementById("chatInput");
+    const fileInput = document.getElementById("fileInput");
+    let conn, call, localStream;
+
+    function logMessage(msg) {
+      const time = new Date().toLocaleString("en-US", { hour12: true });
+      log.innerHTML += `<div>[${time}] ${msg}</div>`;
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function getMedia(callback) {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(stream => {
+          localStream = stream;
+          localVideo.srcObject = stream;
+          callback(stream);
+        });
+    }
+
+    peer.on('open', id => {
+      const roomId = prompt("Enter room code:");
+      const name = prompt("Enter your name:");
+      logMessage(`${name} joined the room (${id})`);
+      conn = peer.connect(roomId);
+      conn.on('open', () => {
+        conn.send(`${name} joined the room.`);
+      });
+      conn.on('data', data => logMessage(data));
+      call = peer.call(roomId, localStream);
+      call.on('stream', stream => remoteVideo.srcObject = stream);
+    });
+
+    peer.on('connection', connection => {
+      conn = connection;
+      conn.on('data', data => logMessage(data));
+    });
+
+    peer.on('call', incomingCall => {
+      getMedia(stream => {
+        incomingCall.answer(stream);
+        incomingCall.on('stream', stream => remoteVideo.srcObject = stream);
+        logMessage("Accepted a call.");
+      });
+    });
+
+    function sendMessage() {
+      const msg = chatInput.value;
+      if (msg && conn) {
+        conn.send(msg);
+        logMessage("You: " + msg);
+        chatInput.value = "";
+      }
+    }
+
+    function toggleMic() {
+      const audioTrack = localStream.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled;
+      logMessage("Mic " + (audioTrack.enabled ? "unmuted" : "muted"));
+    }
+
+    function toggleVideo() {
+      const videoTrack = localStream.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled;
+      logMessage("Camera " + (videoTrack.enabled ? "on" : "off"));
+    }
+
+    function shareScreen() {
+      navigator.mediaDevices.getDisplayMedia({ video: true }).then(screenStream => {
+        const videoTrack = screenStream.getVideoTracks()[0];
+        const sender = call.peerConnection.getSenders().find(s => s.track.kind === videoTrack.kind);
+        sender.replaceTrack(videoTrack);
+        logMessage("Screen sharing started.");
+      });
+    }
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files[0];
+      if (file && conn) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          conn.send(`${peer.id} shared file: ${file.name}`);
+          logMessage(`You shared file: ${file.name}`);
+        };
+        reader.readAsArrayBuffer(file);
+      }
+    });
+
+    setInterval(() => {
+      const now = new Date();
+      document.getElementById("clock").textContent = now.toLocaleString("en-US", { hour12: true });
+    }, 1000);
+
+    getMedia(() => {});
+  </script>
+</body>
+</html>
